@@ -5,10 +5,22 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <mach-o/loader.h>
+#include <vector>
 
 using namespace std;
-bool parseMachoHeader(void *data);
-void parseLoadCommandSegment(void *data);
+bool parseMachoHeader(void *dataStart);
+void parseLoadCommandSegment(void *dataStart, void *data);
+struct s_segComHrdVecSecHrd{
+    s_segComHrdVecSecHrd () : segComHrd({0}), vecSecHrd(0)
+    {
+        /*segComHrd = {0};
+        vecSecHrd = vector<section_64>(0);*/
+    }
+    segment_command_64 segComHrd;
+    vector<section_64> vecSecHrd;
+};
+
+vector<s_segComHrdVecSecHrd> vecStructSegComHrdVecSecHrd; //Oh yeah baby !
 
 int main(int ac, char **av)
 {
@@ -35,10 +47,10 @@ int main(int ac, char **av)
     return 0;
 }
 
-bool parseMachoHeader(void *data)
+bool parseMachoHeader(void *dataStart)
 {
     cout << "taille load command " << sizeof(load_command) << endl;
-    mach_header_64 *h = (mach_header_64 *) data;
+    mach_header_64 *h = (mach_header_64 *) dataStart;
     if (h->filetype != MH_EXECUTE)
     {
         cout << "not a binary" << endl;
@@ -54,31 +66,46 @@ bool parseMachoHeader(void *data)
     for (int i = 0; i < nbcmds; i++)
     {
         struct load_command *lc;
-        lc = (struct load_command *) ((char*)data + offset);
+        lc = (struct load_command *) ((char*)dataStart + offset);
         //cout << "command: " << lc->cmd << " size " << lc->cmdsize << endl;
         if (lc->cmd == LC_SEGMENT_64)
         {
-            parseLoadCommandSegment(lc);
+            parseLoadCommandSegment(dataStart, lc);
         }
 
         offset += lc->cmdsize;
         //offset += 80;
     }
+    void *end = (char *)(dataStart) + offset;
     return true;
 }
 
-void parseLoadCommandSegment(void *data)
+/*
+ struct s_segComHrdVecSecHrd{
+    segment_command_64 segComHrd;
+    vector<section_64> vecSecHrd;
+};
+
+vector<s_segComHrdVecSecHrd> \;
+
+ */
+
+void parseLoadCommandSegment(void *dataStart, void *data)
 {
-    //segment_command_64 *loadCommandSegment = (segment_command_64 *)data;
-    segment_command_64 loadCommandSegment;
-    memcpy(&loadCommandSegment, data, sizeof(segment_command_64));
-    //uint64_t *addr = (uint64_t *)data;
-    cout << "offset: " << loadCommandSegment.fileoff << " | addr: " << loadCommandSegment.vmaddr << " | size: " << loadCommandSegment.filesize << endl;
-    for (int i =0; i < loadCommandSegment.nsects; i++)
+    s_segComHrdVecSecHrd a;
+    memcpy(&(a.segComHrd), data, sizeof(segment_command_64));
+
+
+    cout << "offset: " << a.segComHrd.fileoff << " | addr: " << a.segComHrd.vmaddr << " | size: " << a.segComHrd.filesize<< " | nsects: " << a.segComHrd.nsects << endl;
+    for (int i =0; i < a.segComHrd.nsects; i++)
     {
         section_64 *section64 = (section_64 *) ((char *)data + sizeof(segment_command_64) + i * sizeof(section_64));
-        cout <<"    section64: " << section64->segname << "." << section64->sectname << endl;
+        a.vecSecHrd.push_back(*section64);
+
+        cout <<"    section64: " << section64->segname << "." << section64->sectname << " addr: " << section64->addr << " off: " << section64->offset << endl;
     }
+
+    vecStructSegComHrdVecSecHrd.push_back(a);
 
     /*if (loadCommandSegment.nsects)
     {
