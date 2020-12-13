@@ -6,13 +6,18 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <mach-o/loader.h>
+#include <mach-o/nlist.h>
 #include <vector>
+
+#define  __darwin__NULL_Ptr_  nullptr
 
 using namespace std;
 bool parseMachoHeader(char *dataStart);
 void parseLoadCommandSegment(char *dataStart, void *data);
 void hexdumpBuf(char *buf, uint64_t len);
 void parseSymtab(char *dataStart, void *data);
+char get_symbol_letter(nlist_64 *sym);
+char match_symbol_section(nlist_64 *symbol);
 
 struct s_segComHrdVecSecHrd{
     s_segComHrdVecSecHrd () : segComHrd({0}), vecSecHrd(0)
@@ -53,7 +58,7 @@ int main(int ac, char **av)
 
 bool parseMachoHeader(char *dataStart)
 {
-    cout << "taille load command " << sizeof(load_command) << endl;
+    //cout << "taille load command " << sizeof(load_command) << endl;
     mach_header_64 *h = (mach_header_64 *) dataStart;
     if (h->filetype != MH_EXECUTE)
     {
@@ -93,7 +98,7 @@ void parseLoadCommandSegment(char *dataStart, void *data)
     memcpy(&(a.segComHrd), data, sizeof(segment_command_64));
 
 
-    cout << "offset: " << a.segComHrd.fileoff << " | addr: " << a.segComHrd.vmaddr << " | size: " << a.segComHrd.filesize<< " | nsects: " << a.segComHrd.nsects << endl;
+    //cout << "offset: " << a.segComHrd.fileoff << " | addr: " << a.segComHrd.vmaddr << " | size: " << a.segComHrd.filesize<< " | nsects: " << a.segComHrd.nsects << endl;
     for (int i =0; i < a.segComHrd.nsects; i++)
     {
         section_64 *section64 = (section_64 *) ((char *)data + sizeof(segment_command_64) + i * sizeof(section_64));
@@ -111,14 +116,109 @@ void parseLoadCommandSegment(char *dataStart, void *data)
 }
 
 
+char get_symbol_letter(nlist_64 *sym)
+{
+    if (N_STAB & sym->n_type)
+        return 's'; // Debug symbols -> s comme debug
+    else if ((N_TYPE & sym->n_type) == N_UNDF)
+    {
+        /*if (sym->name_not_found)
+            return 'C';
+        else*/
+        if (sym->n_type & N_EXT)
+            return 'U';
+        else
+            return '?';
+    } else if ((N_TYPE & sym->n_type) == N_SECT) {
+
+        return match_symbol_section(sym); // We have to match it with our saved sections
+    } else if ((N_TYPE & sym->n_type) == N_ABS) {
+        return 'A';
+    } else if ((N_TYPE & sym->n_type) == N_INDR) {
+        return 'I';
+    }
+    return '$';
+}
+
+
+section_64 *find_mysection(unsigned char section)
+{
+    unsigned char i = 0;
+    for (s_segComHrdVecSecHrd &a : vecStructSegComHrdVecSecHrd)
+    {
+
+        for (section_64 &sec : a.vecSecHrd)
+        {
+            if (section == i)
+            {
+                return &sec;
+            }
+            i++;
+        }
+        if (a.vecSecHrd.empty())
+            i++;
+    }
+    return __darwin__NULL_Ptr_; // 😎
+}
+
+char match_symbol_section(nlist_64 *symbol)
+{
+    char ret = 'X';
+    if (section_64 *sect = find_mysection(symbol->n_sect))
+    {
+        if (!strcmp(sect->sectname, SECT_TEXT))
+            ret = 'T';
+        else if (!strcmp(sect->sectname, SECT_DATA))
+            ret = 'D';
+        else if (!strcmp(sect->sectname, SECT_BSS))
+            ret = 'B';
+        else
+            ret = 'S';
+
+        if (!(symbol->n_type & N_EXT))
+
+            ret -= 'A' - 'a';
+    }
+    return ret;
+}
+struct symb {
+    string name;
+    nlist_64 *symbole;
+};
+vector<symb> symbs;
+
 void parseSymtab(char *dataStart, void *data)
 {
     symtab_command sc;
     memcpy(&sc, data, sizeof(symtab_command));
+    char *strtab = dataStart + sc.stroff;
+    char *symtab = dataStart + sc.symoff;
+    uint32_t nbsym = sc.nsyms;
+    int i = 0;
+
+    while (i < nbsym)
+    {
+        char *name = strtab + ( ( struct nlist_64 *)symtab + i)->n_un.n_strx;
+        struct nlist_64 *symbole = ( struct nlist_64 *)symtab + i;
+        symbs.push_back({string(name), symbole});
+        i++;
+    }
 
 
-    cout << "offset: " << sc.symoff << " | nsyms: " << sc.nsyms << " | stroff: " << sc.stroff<< " | strsize: " << sc.strsize << endl;
+    sort(symbs.begin(), symbs.end(), [](symb &s1, symb &s2) {
+        return (s1.name < s2.name);
+    });
 
+    for (auto &s : symbs)
+    {
+        if (s.symbole->n_value > 0)
+        {
+           cout << std::setw(16) << std::setfill('0') << hex << s.symbole->n_value << " ";
+        }
+        else
+           cout << "                 ";
+        cout << get_symbol_letter(s.symbole) << " " << s.name << endl;
+    }
 
 }
 
