@@ -204,7 +204,6 @@ void parseSymtab(char *dataStart, void *data)
         i++;
     }
 
-
     sort(symbs.begin(), symbs.end(), [](symb &s1, symb &s2) {
         return (s1.name < s2.name);
     });
@@ -219,7 +218,6 @@ void parseSymtab(char *dataStart, void *data)
            cout << "                 ";
         cout << get_symbol_letter(s.symbole) << " " << s.name << endl;
     }
-
 }
 
 void hexdumpBuf(char *buf, uint64_t len)
